@@ -1,0 +1,135 @@
+---
+title: "Machine Learning - Prediction Assignment"
+author: "Kelvin Chan"
+date: "October, 2016"
+output: html_document
+---
+
+## Background
+
+The purpose of the assignment is to use data from accelerometers on the belt, forearm, arm and dumbbell to predict the manner i.e. Class in which 6 participants did a particular exercise. They were asked to perform barbell lifts where Class A refers to correct performance, Class B throwing the elbows to the front, Class C lifting the dumbbell only halfway, Class D lowering the dumbbell only halfway and Class E throwing the hips to the front. More details are available from the following [website](http://groupware.les.inf.puc-rio.br/har).
+
+## Result
+
+A random forest model was found to have the lowest out-of-sample error of the two methods (boosting and random forest) tested and therefore was used to predict the 20 test cases.
+
+## Data Source
+
+The training dataset used to construct the prediction model was downloaded from this [website](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv).
+
+The test dataset consists of 20 cases upon which to apply the prediction model was downloaded from this [website](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv).
+
+```{r}
+file.name <- "pml-training.csv"
+url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+Datafile <- "./pml-training.csv"
+
+if (!file.exists(file.name)) {
+        download.file(url,destfile = Datafile)
+}
+TrainingData <- read.csv("pml-training.csv",header=TRUE)
+
+file.name <- "pml-testing.csv"
+url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+Datafile <- "./pml-testing.csv"
+
+if (!file.exists(file.name)) {
+        download.file(url,destfile = Datafile)
+}
+TestingData <- read.csv("pml-testing.csv",header=TRUE)
+```
+
+The training dataset consists of 19622 observations of 160 variables while the testing dataset has 20 observations of the same number of variables. The item "classe" is the dependent variable.
+
+## Data Preparation
+
+An initial step is to remove the first 7 columns which contain administrative fields and time related items which do not feature in the task to be predicted. There are a number of missing observations and NA which do not aid the building of the model. All missing items are converted to NA and the entire column is subsetted out leaving 53 variables including "classe".
+
+```{r}
+TrainingData <- TrainingData[,-c(1:7)]
+TestingData <- TestingData[,-c(1:7)]
+
+TrainingData[TrainingData==""] <- NA
+TrainingData <- TrainingData[,colSums(is.na(TrainingData))==0]
+TestingData[TestingData==""] <- NA
+TestingData <- TestingData[,colSums(is.na(TestingData))==0]
+```
+
+## Reproducibility and Cross Validation
+
+A seed is set to make the analysis reproducible and the training dataset is split between a "Train" (60%) and "Validation" set (40%).
+
+```{r}
+set.seed(123)
+library(lattice)
+library(ggplot2)
+library(caret)
+inTrain <- createDataPartition(TrainingData$classe,p=0.6,list=FALSE)
+Train <- TrainingData[inTrain,]
+Validation <- TrainingData[-inTrain,]
+```
+
+## Runtime Enhancement
+
+Applying the suggestion provided on the Coursera discussion forum which refers to the following [ paper](https://github.com/lgreski/datasciencectacontent/blob/master/markdown/pml-randomForestPerformance.md), two measures were used to improve runtime: 1) use parallel processing; 2) use 5-fold cross validation which introduces more bias but less variance and a shorter runtime than the default 10-fold.
+
+```{r}
+library(foreach)
+library(iterators)
+library(parallel)
+library(doParallel)
+cluster <- makeCluster(detectCores()-1)
+registerDoParallel(cluster)
+fitControl <- trainControl(method="cv",number=5,allowParallel=TRUE)
+```
+
+## Prediction Model
+
+As mentioned in the Coursera Practical Machine Learning notes, boosting and random forest methods have been found to be two of the more successful approaches used, hence they were chosen as initial model candidates. 
+
+### Boosting
+
+The boosting model was built on the Train set and applied to the Validation set. From the confusion matrix, the accuracy level was 96% and therefore the out-of-sample error rate was 4%. A good result, however it is worth considering the random forests method.
+
+```{r}
+library(lattice)
+library(ggplot2)
+library(caret)
+library(splines)
+library(plyr)
+library(rpart)
+library(survival)
+library(gbm)
+mod_gbm <- train(classe~.,data=Train,method="gbm",trControl=fitControl)
+print(mod_gbm)
+predict_gbm <- predict(mod_gbm,Validation)
+conf_gbm <- confusionMatrix(Validation$classe,predict_gbm)
+print(conf_gbm)
+```
+
+### Random Forest
+
+The random forest model was built on the Train set and applied to the Validation set. From the confusion matrix, the accuracy level was 99% and therefore the out-of-sample error rate was 1%. An improvement on the previous result and therefore chosen to predict the 20 cases in the Testing dataset.
+
+```{r}
+library(lattice)
+library(ggplot2)
+library(caret)
+library(rpart)
+library(randomForest)
+mod_rf <- train(classe~.,data=Train,method="rf",trControl=fitControl)
+stopCluster(cluster)
+print(mod_rf)
+predict_rf <- predict(mod_rf,Validation)
+conf_rf <- confusionMatrix(Validation$classe,predict_rf)
+print(conf_rf)
+```
+
+## Prediction on Testing Data
+
+Predictions for the 20 cases in respective order.
+
+```{r}
+print(predict(mod_rf,TestingData))
+```
+
